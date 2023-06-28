@@ -6,7 +6,9 @@ app = Flask(__name__)
 
 @app.route('/userid/<int:id>')
 def show_records_userid(id):
-    # Shows the information with given id.
+    """
+    Function to show the all user information with given id.
+    """
     db = sqlite3.connect('Kasheesh.db')
     print("Opened database successfully")
 
@@ -39,22 +41,36 @@ def show_records_userid(id):
 
 @app.route('/merchanttypecode/<int:merchant_type>')
 def show_records_merchant(merchant_type):
-    # Shows the post with given id.
+    """
+    Function to show the daily total purchases net of returns given a merchant_type_code
+    """
     db = sqlite3.connect('Kasheesh.db')
     print("Opened database successfully")
 
-    sql_query = pd.read_sql_query ('''
-                               SELECT merchant_type_code, sum(amount_cents)/100 as net_amount_in_dollars,
+    # Total purchase
+    sql_query_purchase = pd.read_sql_query ('''
+                               SELECT merchant_type_code, sum(amount_cents)/100 as net_amount_purchase_in_dollars,
                                date(datetime) as date FROM purchases where merchant_type_code = {}
                                group by merchant_type_code, date(datetime)
                                '''.format(merchant_type), db)
 
-    df = pd.DataFrame(sql_query, columns = ['merchant_type_code', 'net_amount_in_dollars', 'date'])
+    df_purchase = pd.DataFrame(sql_query_purchase, columns = ['merchant_type_code', 'net_amount_purchase_in_dollars', 'date'])
+
+    # Total return
+    sql_query_return = pd.read_sql_query ('''
+                               SELECT merchant_type_code, sum(amount_cents)/100 as net_amount_return_in_dollars,
+                               date(datetime) as date FROM returns where merchant_type_code = {}
+                               group by merchant_type_code, date(datetime)
+                               '''.format(merchant_type), db)
+    # Merge the tables and get the net purchase of return
+    df_return = pd.DataFrame(sql_query_return, columns = ['merchant_type_code', 'net_amount_return_in_dollars', 'date'])
+    df = df_purchase.merge(df_return, how='outer', on=['merchant_type_code', 'date']).fillna(0)
+    df['net_amount_in_dollars'] = df['net_amount_purchase_in_dollars'] - df['net_amount_return_in_dollars']
 
     # ouput and deal with errors
     if len(df) > 0:
         print("Data grabbed successfully")
-        return Response(df.to_json(orient="records"), status=200, mimetype='application/json')
+        return Response(df[['merchant_type_code', 'net_amount_in_dollars', 'date']].to_json(orient="records"), status=200, mimetype='application/json')
 
     else:
         return "Merchant not found", 404
